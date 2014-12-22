@@ -1,0 +1,120 @@
+#!/bin/bash
+# s3backup - the s3 backup shell script for MariaDB
+# Author: Guillaume Lefranc <guillaume.lefranc@mariadb.com>
+# Licence: GNU General Public Licence, version 3. Redistribution/Reuse of this code is permitted under the GNU v3 license, as an additional term ALL code must carry the original Author(s) credit in comment form.
+
+# Configure me first!
+# MariaDB user and password with backup privileges
+user=bkp
+password=S3cr3t
+# AWS Access Key and ID
+export AWS_ACCESS_KEY_ID=
+export AWS_SECRET_ACCESS_KEY=
+
+cmd=$1
+keyfile=~/.s3backup.key
+timestamp=$(date +%Y%m%d%H%M%S)
+ibex=$(which innobackupex)
+if [ $? -eq 1 ]
+then
+	echo "ERROR: Innobackupex missing, please install xtrabackup"
+	exit 1
+fi
+s3client=$(which gof3r)
+if [ $? -eq 1 ]
+then
+	echo "ERROR: gof3r missing, please install S3gof3r"
+	exit 1
+fi
+case $cmd in
+genkey)
+	key=$(openssl aes-256-cbc -P -md sha1 | grep iv | cut -f2 -d=)
+	echo "Your encryption key is ${key}. Saving in ~/.s3backup.key"
+	echo -n ${key} > ~/.s3backup.key
+	chmod 0600 ~/.s3backup.key
+	;;
+upload)	
+	bucket=$2
+	if [ -z $bucket ]
+	then
+		echo "ERROR: Please specify a S3 Bucket to upload to"
+		exit 1
+	fi
+	if [ ! -e ${keyfile} ]
+	then
+		echo "ERROR: Encryption key does not exist, please run 's3backup genkey' first!"
+		exit 1
+	fi
+	echo "Backup in progress, please wait. Log written in s3backup.log"
+	innobackupex --encrypt=AES256 --encrypt-key-file=${keyfile} --stream=xbstream --compress --user=${user} --password=${password} . 2> s3backup.log | pv | ${s3client} put -b ${bucket} -k backup_${timestamp}.xbcrypt
+	status=(${PIPESTATUS[@]})
+	ibex_status=${status[0]}
+	s3_status=${status[1]}
+	if [ $ibex_status -ne 0 ]
+	then
+		echo "ERROR: Xtrabackup failure!"
+		exit 1
+	fi
+	if [ $s3_status -ne 0 ]
+	then
+		echo "ERROR: S3 Transfer failed!"
+		exit 1
+	fi
+	echo "Upload of backup_${timestamp} complete"
+	exit 0
+	;;
+restore)
+	bucket=$2
+	fn=$3
+	if [ -z $bucket ]
+	then
+		echo "ERROR: Please specify a S3 bucket to download from"
+		exit 1
+	elif [ -z $fn ]
+	then
+		echo "ERROR: Please specify a backup name (without extension) to retrieve, e.g. backup_20141219013000"
+		exit 1
+	fi
+	mkdir ${fn}
+	echo "Downloading, decrypting and extracting backup to $(pwd)/${fn}"
+	${s3client} get -b ${bucket} -k ${fn}.xbcrypt | xbcrypt --encrypt-algo=AES256 --decrypt --encrypt-key-file=$HOME/.s3backup.key | xbstream -x -C ${fn}
+	status=(${PIPESTATUS[@]})
+	s3_status=${status[0]}
+	xbc_status=${status[1]}
+	xb_status=${status[2]}
+	if [ $s3_status -ne 0 ]
+	then
+		echo "ERROR: Backup not found or could not initiate transfer"
+		exit 1
+	fi
+	if [ $xbc_status -ne 0 ]
+	then
+		echo "ERROR: Decrypting backup failed"
+		exit 1
+	fi
+	if [ $xb_status -ne 0 ]
+	then
+		echo "ERROR: Extracting backup failed"
+		exit 1
+	fi
+	rm -f ${fn}.xb
+	echo "Decompressing backup"
+	innobackupex --decompress $(pwd)/${fn} 2>> s3backup.log
+	echo "Preparing backup"
+	innobackupex --apply-log $(pwd)/${fn} 2>> s3backup.log
+	if [ $? -ne 0 ]
+	then
+		echo "ERROR: Applying logs failed. Check s3backup.log file"
+		exit 1
+	fi
+	echo "Restore complete"
+	exit 0
+	;;
+*)
+	echo "Usage:"
+	echo "s3backup genkey				Generate the AES256 key for encryption."
+	echo "s3backup upload [bucket]		Upload to S3 bucket named [bucket]"
+	echo "s3backup restore [bucket] [name]	Restore from S3 [bucket] backup named [name] (without .xbcrypt extension)"
+	exit 1
+	;;
+esac
