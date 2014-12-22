@@ -3,6 +3,7 @@
 # Author: Guillaume Lefranc <guillaume.lefranc@mariadb.com>
 # License: GNU General Public License, version 3. Redistribution/Reuse of this code is permitted under the GNU v3 license, as an additional term ALL code must carry the original Author(s) credit in comment form.
 # See LICENSE in this directory for the integral text.
+# Warning: This script is not supported nor endorsed by MariaDB Corporation. Use at your own risk!
 #
 # Configure me first!
 # MariaDB user and password with backup privileges

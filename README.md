@@ -11,3 +11,5 @@ Usage:
 s3backup genkey				Generate the AES256 key for encryption.
 s3backup upload [bucket]		Upload to S3 bucket named [bucket]
 s3backup restore [bucket] [name]	Restore from S3 [bucket] backup named [name] (without .xbcrypt extension)
+
+_This tool is not supported neither endorsed by MariaDB Corporation. Use at your own risk!_
