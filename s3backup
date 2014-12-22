@@ -1,8 +1,9 @@
 #!/bin/bash
-# s3backup - the s3 backup shell script for MariaDB
+# s3backup - the S3 backup shell script for MariaDB
 # Author: Guillaume Lefranc <guillaume.lefranc@mariadb.com>
-# Licence: GNU General Public Licence, version 3. Redistribution/Reuse of this code is permitted under the GNU v3 license, as an additional term ALL code must carry the original Author(s) credit in comment form.
-
+# License: GNU General Public License, version 3. Redistribution/Reuse of this code is permitted under the GNU v3 license, as an additional term ALL code must carry the original Author(s) credit in comment form.
+# See LICENSE in this directory for the integral text.
+#
 # Configure me first!
 # MariaDB user and password with backup privileges
 user=bkp
