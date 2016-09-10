@@ -1,5 +1,5 @@
 #!/bin/bash
-# s3backup - the S3 backup shell script for MariaDB
+# s3backup - the S3 backup shell script for MariaDB / MySQL
 # Author: Guillaume Lefranc <guillaume.lefranc@mariadb.com>
 # License: GNU General Public License, version 3. Redistribution/Reuse of this code is permitted under the GNU v3 license, as an additional term ALL code must carry the original Author(s) credit in comment form.
 # See LICENSE in this directory for the integral text.
@@ -16,13 +16,13 @@ export AWS_SECRET_ACCESS_KEY=
 cmd=$1
 keyfile=~/.s3backup.key
 timestamp=$(date +%Y%m%d%H%M%S)
-ibex=$(which innobackupex)
+ibex=$(command -v ${ibex})
 if [ $? -eq 1 ]
 then
 	echo "ERROR: Innobackupex missing, please install xtrabackup"
 	exit 1
 fi
-s3client=$(which gof3r)
+s3client=$(command -v gof3r)
 if [ $? -eq 1 ]
 then
 	echo "ERROR: gof3r missing, please install S3gof3r"
@@ -48,7 +48,7 @@ upload)
 		exit 1
 	fi
 	echo "Backup in progress, please wait. Log written in s3backup.log"
-	innobackupex --encrypt=AES256 --encrypt-key-file=${keyfile} --stream=xbstream --compress --user=${user} --password=${password} . 2> s3backup.log | pv | ${s3client} put -b ${bucket} -k backup_${timestamp}.xbcrypt
+	${ibex} --encrypt=AES256 --encrypt-key-file=${keyfile} --stream=xbstream --compress --user=${user} --password=${password} . 2> s3backup.log | pv | ${s3client} put -b ${bucket} -k backup_${timestamp}.xbcrypt
 	status=(${PIPESTATUS[@]})
 	ibex_status=${status[0]}
 	s3_status=${status[1]}
@@ -101,9 +101,9 @@ restore)
 	fi
 	rm -f ${fn}.xb
 	echo "Decompressing backup"
-	innobackupex --decompress $(pwd)/${fn} 2>> s3backup.log
+	${ibex} --decompress $(pwd)/${fn} 2>> s3backup.log
 	echo "Preparing backup"
-	innobackupex --apply-log $(pwd)/${fn} 2>> s3backup.log
+	${ibex} --apply-log $(pwd)/${fn} 2>> s3backup.log
 	if [ $? -ne 0 ]
 	then
 		echo "ERROR: Applying logs failed. Check s3backup.log file"
