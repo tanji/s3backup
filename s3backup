@@ -135,7 +135,7 @@ __check_mysql_credentials () {
 # --- Function: __check_xtrabackup_version
 __check_xtrabackup_version () {
   local CURRENT_VERSION
-  CURRENT_VERSION=$($IBEX_CMD  --version 2>&1 | sed -e 's/[^0-9.]*\([0-9.]*\).*/\1/' -e 's/\.//g' )
+  CURRENT_VERSION=$($IBEX_CMD  --version 2>&1 | head -n1 | sed -e 's/[^0-9.]*\([0-9.]*\).*/\1/' -e 's/\.//g' )
   if [ "$CURRENT_VERSION" -lt "$MINOR_SUPPORTED_VERSION" ]
   then
     echoerror "Please install xtrabackup 2.3 or higher."
