@@ -26,7 +26,7 @@ export AWS_SECRET_ACCESS_KEY='YOUR_AWS_SECRET_ACCESS_KEY'
 
 # ----- END CONFIGURATION ------------------------
 
-SCRITP_NAME="s3backup"
+SCRIPT_NAME="s3backup"
 CMD="$1"
 S3BACKUP_DIR="$HOME/.s3backup"
 KEYFILE="${S3BACKUP_DIR}/key"
@@ -75,10 +75,10 @@ usage() {
   echo ""
   echo "Usage: "
   echo ""
-  echo "	$SCRITP_NAME genkey - Generate the AES256 key for encryption."
-  echo "	$SCRITP_NAME backup - Upload a full backup to S3 Bucket."
-  echo "	$SCRITP_NAME restore date - Prepare a full backup restore from S3 Bucket from desired date in format 'YYYYMMDD'."
-  echo "	$SCRITP_NAME full-restore date - Restore a full backup from S3 Bucket from disered date in format 'YYYYMMDD'."
+  echo "	$SCRIPT_NAME genkey - Generate the AES256 key for encryption."
+  echo "	$SCRIPT_NAME backup - Upload a full backup to S3 Bucket."
+  echo "	$SCRIPT_NAME restore date - Prepare a full backup restore from S3 Bucket from desired date in format 'YYYYMMDD'."
+  echo "	$SCRIPT_NAME full-restore date - Restore a full backup from S3 Bucket from desired date in format 'YYYYMMDD'."
   echo ""
 }
 
@@ -160,7 +160,7 @@ __check_mysql_running ()  {
 __check_empty_dir ()  {
   if [[ -d "$LOCAL_DIR" && $(find "${LOCAL_DIR}" | wc -l) -ne 1 ]]
   then
-    echoerror "Direcotry ${LOCAL_DIR} doesn't seams to be empty!"
+    echoerror "Directory ${LOCAL_DIR} doesn't seem to be empty!"
   fi
 }
 
@@ -171,7 +171,7 @@ __get_mysql_perms ()  {
   __GROUP_MYSQL=$(stat -c '%G' $LOCAL_DIR )
   if [[ -z "$__USER_MYSQL" || -z "$__GROUP_MYSQL" ]]
   then
-    echoerror "Fail to get MySQL datadir ownership!"
+    echoerror "Failed to get MySQL datadir ownership!"
   fi
 }
 
@@ -190,18 +190,18 @@ fi
 # Check if lock exists
 if [ -f "${LOCKFILE}" ]
 then
-  echoerror "Lock file ${LOCKFILE} exsit. Do you have another process running?."
+  echoerror "Lock file ${LOCKFILE} exists. Do you have another process running?."
 fi
 
 case $CMD in
 	genkey)
     if [ -f "$KEYFILE" ]
     then
-      echowarn "There is a key in $KEYFILE overwriting this file whill break the restore process."
+      echowarn "There is a key in $KEYFILE. Overwriting this file will break the restore process."
       read -r -p "Are you sure? [y/N] " response
       case $response in
         [yY][eE][sS]|[yY])
-          echoinfo -n "Please save this key just inc ase you need it in the future: "
+          echoinfo -n "Please save this key just in case you need it in the future: "
           cat "$KEYFILE"
           echo ""
           echoinfo "Generating new KEY."
@@ -228,7 +228,7 @@ case $CMD in
     fi
     __check_mysql_credentials
   	echoinfo "Backup in progress, please wait. Log written to ${LOGFILE}"
-  	touch "${LOCKFILE}" || echoerror "Fail to create lock file. Please review the configuration."
+  	touch "${LOCKFILE}" || echoerror "Failed to create lock file. Please review the configuration."
   	${IBEX_CMD} --encrypt=AES256 --encrypt-key-file="${KEYFILE}" --stream=xbstream --compress --user=${MYSQL_USER} --password=${MYSQL_PASSWORD} . 2>>"${LOGFILE}" | $PV_CMD | ${GOF3R_CMD} put -b "${S3_BUCKET_NAME}" --endpoint="${AWS_REGION}" -k "${S3_BACKUP_PATH}"/"${CURRENT_DATE}"/"${S3_BACKUP_NAME}".xbcrypt
   	STATUS=(${PIPESTATUS[@]})
   	IBEX_STATUS=${STATUS[0]}
