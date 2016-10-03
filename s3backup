@@ -1,122 +1,333 @@
-#!/bin/bash
+#!/usr/bin/env bash
+#
 # s3backup - the S3 backup shell script for MariaDB / MySQL
 # Author: Guillaume Lefranc <guillaume.lefranc@mariadb.com>
-# License: GNU General Public License, version 3. Redistribution/Reuse of this code is permitted under the GNU v3 license, as an additional term ALL code must carry the original Author(s) credit in comment form.
+# Contributor: Alejandro Bednarik <alejandro.bednarik@gmail.com>
+# License: GNU General Public License, version 3. Redistribution/Reuse of this code is permitted under
+# the GNU v3 license, as an additional term ALL code must carry the original Author(s) credit in comment form.
 # See LICENSE in this directory for the integral text.
 # Warning: This script is not supported nor endorsed by MariaDB Corporation. Use at your own risk!
 #
 # Configure me first!
-# MariaDB user and password with backup privileges
-user=bkp
-password=S3cr3t
-# AWS Access Key and ID
-export AWS_ACCESS_KEY_ID=
-export AWS_SECRET_ACCESS_KEY=
+#
 
-cmd=$1
-keyfile=~/.s3backup.key
-timestamp=$(date +%Y%m%d%H%M%S)
-ibex=$(command -v ${ibex})
-if [ $? -eq 1 ]
-then
-	echo "ERROR: Innobackupex missing, please install xtrabackup"
-	exit 1
+# ----- START CONFIGURATION ---------------------
+
+S3_BUCKET_NAME='my_bucket'
+S3_BACKUP_PATH='databases'
+S3_BACKUP_NAME='cluster_name'
+MYSQL_USER='root'
+MYSQL_PASSWORD='root'
+MYSQL_SERVICE_CMD="service mysql start"
+LOCAL_DIR='/tmp/restore_db'
+AWS_REGION='s3-us-west-2.amazonaws.com'
+export AWS_ACCESS_KEY_ID='YOUR_AWS_ACCESS_KEY_ID'
+export AWS_SECRET_ACCESS_KEY='YOUR_AWS_SECRET_ACCESS_KEY'
+
+# ----- END CONFIGURATION ------------------------
+
+SCRITP_NAME="s3backup"
+CMD="$1"
+S3BACKUP_DIR="$HOME/.s3backup"
+KEYFILE="${S3BACKUP_DIR}/key"
+LOCKFILE="${S3BACKUP_DIR}/lock"
+LOGFILE="/var/log/s3backup.log"
+CURRENT_DATE=$(date +%Y%m%d)
+MINOR_SUPPORTED_VERSION="23"
+TRUE="1"
+FALSE="0"
+
+# -- Function: __detect_color_support
+_COLORS=${BS_COLORS:-$(tput colors 2>/dev/null || echo 0)}
+__detect_color_support() {
+  if [ $? -eq 0 ] && [ "$_COLORS" -gt 2 ]; then
+    RC="\033[1;31m"
+    GC="\033[1;32m"
+		YC="\033[1;33m"
+    EC="\033[0m"
+  else
+    RC=""
+    GC=""
+    YC=""
+    EC=""
+  fi
+}
+__detect_color_support
+
+# --- Function: echoerror
+echoerror() {
+  printf "${RC}ERROR${EC}: %s\n" "$@";
+  exit 1
+}
+
+# --- Function: echoinfo
+echoinfo() {
+  printf "${GC}INFO${EC}: %s\n" "$@";
+}
+
+# --- Function: echowarn
+echowarn() {
+  printf "${YC}WARN${EC}: %s\n" "$@";
+}
+
+# -- Function: usage
+usage() {
+  echo ""
+  echo "Usage: "
+  echo ""
+  echo "	$SCRITP_NAME genkey - Generate the AES256 key for encryption."
+  echo "	$SCRITP_NAME backup - Upload a full backup to S3 Bucket."
+  echo "	$SCRITP_NAME restore date - Prepare a full backup restore from S3 Bucket from desired date in format 'YYYYMMDD'."
+  echo "	$SCRITP_NAME full-restore date - Restore a full backup from S3 Bucket from disered date in format 'YYYYMMDD'."
+  echo ""
+}
+
+# -- Function: __check_command_exists
+__check_command_exists () {
+  command -v "$1" >/dev/null 2>&1
+}
+
+# --- Validate required dependencies
+if __check_command_exists innobackupex ; then
+  IBEX_CMD="$(which innobackupex)"
+else
+  echoerror "'innobackupex' command missing. Make sure you have xtrabackup installed."
 fi
-s3client=$(command -v gof3r)
-if [ $? -eq 1 ]
-then
-	echo "ERROR: gof3r missing, please install S3gof3r"
-	exit 1
+
+if __check_command_exists qpress ; then
+  QPRESS_CMD="$(which qpress)"
+else
+  echoerror "'qpress' command missing. Make sure you have qpress installed."
 fi
-case $cmd in
-genkey)
-	key=$(openssl aes-256-cbc -P -md sha1 | grep iv | cut -f2 -d=)
-	echo "Your encryption key is ${key}. Saving in ~/.s3backup.key"
-	echo -n ${key} > ~/.s3backup.key
-	chmod 0600 ~/.s3backup.key
-	;;
-upload)	
-	bucket=$2
-	if [ -z $bucket ]
+
+if  __check_command_exists gof3r ; then
+  GOF3R_CMD="$(which gof3r)"
+else
+  echoerror "'gof3r' command missing. Make sure you have gof3r installed."
+fi
+
+if  __check_command_exists pv ; then
+  PV_CMD="$(which pv)"
+else
+  echoerror "'pv' command missing. Make sure you have pv installed."
+fi
+
+if  __check_command_exists mysql ; then
+  MYSQL_CMD="$(which mysql)"
+else
+  echoerror "'mysql' command missing. Make sure you have mysql-client installed."
+fi
+
+# --- Function: __check_mysql_credentials
+__check_mysql_credentials () {
+  if ! "$MYSQL_CMD" -u "$MYSQL_USER" -p"${MYSQL_PASSWORD}" -e ";" &> /dev/null
 	then
-		echo "ERROR: Please specify a S3 Bucket to upload to"
-		exit 1
+		echoerror "Please verify MySQL credentials"
 	fi
-	if [ ! -e ${keyfile} ]
-	then
-		echo "ERROR: Encryption key does not exist, please run 's3backup genkey' first!"
-		exit 1
-	fi
-	echo "Backup in progress, please wait. Log written in s3backup.log"
-	${ibex} --encrypt=AES256 --encrypt-key-file=${keyfile} --stream=xbstream --compress --user=${user} --password=${password} . 2> s3backup.log | pv | ${s3client} put -b ${bucket} -k backup_${timestamp}.xbcrypt
-	status=(${PIPESTATUS[@]})
-	ibex_status=${status[0]}
-	s3_status=${status[1]}
-	if [ $ibex_status -ne 0 ]
-	then
-		echo "ERROR: Xtrabackup failure!"
-		exit 1
-	fi
-	if [ $s3_status -ne 0 ]
-	then
-		echo "ERROR: S3 Transfer failed!"
-		exit 1
-	fi
-	echo "Upload of backup_${timestamp} complete"
-	exit 0
-	;;
-restore)
-	bucket=$2
-	fn=$3
-	if [ -z $bucket ]
-	then
-		echo "ERROR: Please specify a S3 bucket to download from"
-		exit 1
-	elif [ -z $fn ]
-	then
-		echo "ERROR: Please specify a backup name (without extension) to retrieve, e.g. backup_20141219013000"
-		exit 1
-	fi
-	mkdir ${fn}
-	echo "Downloading, decrypting and extracting backup to $(pwd)/${fn}"
-	${s3client} get -b ${bucket} -k ${fn}.xbcrypt | xbcrypt --encrypt-algo=AES256 --decrypt --encrypt-key-file=$HOME/.s3backup.key | xbstream -x -C ${fn}
-	status=(${PIPESTATUS[@]})
-	s3_status=${status[0]}
-	xbc_status=${status[1]}
-	xb_status=${status[2]}
-	if [ $s3_status -ne 0 ]
-	then
-		echo "ERROR: Backup not found or could not initiate transfer"
-		exit 1
-	fi
-	if [ $xbc_status -ne 0 ]
-	then
-		echo "ERROR: Decrypting backup failed"
-		exit 1
-	fi
-	if [ $xb_status -ne 0 ]
-	then
-		echo "ERROR: Extracting backup failed"
-		exit 1
-	fi
-	rm -f ${fn}.xb
-	echo "Decompressing backup"
-	${ibex} --decompress $(pwd)/${fn} 2>> s3backup.log
-	echo "Preparing backup"
-	${ibex} --apply-log $(pwd)/${fn} 2>> s3backup.log
-	if [ $? -ne 0 ]
-	then
-		echo "ERROR: Applying logs failed. Check s3backup.log file"
-		exit 1
-	fi
-	echo "Restore complete"
-	exit 0
-	;;
-*)
-	echo "Usage:"
-	echo "s3backup genkey				Generate the AES256 key for encryption."
-	echo "s3backup upload [bucket]		Upload to S3 bucket named [bucket]"
-	echo "s3backup restore [bucket] [name]	Restore from S3 [bucket] backup named [name] (without .xbcrypt extension)"
-	exit 1
-	;;
+}
+
+# --- Function: __check_xtrabackup_version
+__check_xtrabackup_version () {
+  local CURRENT_VERSION
+  CURRENT_VERSION=$($IBEX_CMD  --version 2>&1 | sed -e 's/[^0-9.]*\([0-9.]*\).*/\1/' -e 's/\.//g' )
+  if [ "$CURRENT_VERSION" -lt "$MINOR_SUPPORTED_VERSION" ]
+  then
+    echoerror "Please install xtrabackup 2.3 or higher."
+  fi
+}
+__check_xtrabackup_version
+
+# --- Function: __generate_key
+__generate_key () {
+  local KEY
+  KEY=$(openssl aes-256-cbc -P -md sha1 | grep iv | cut -f2 -d=)
+  echoinfo "Your encryption key is now ${KEY}. Saved in ${KEYFILE}"
+  echo -n "${KEY}" > "${KEYFILE}"
+  chmod 0600 "${KEYFILE}"
+}
+
+# --- Function: __check_mysql_running
+__check_mysql_running ()  {
+  mysqladmin status -u${MYSQL_USER} -p${MYSQL_PASSWORD} &> /dev/null
+  if [ $? -eq 0 ]
+  then
+    return $FALSE
+  fi
+  return $TRUE
+}
+
+# --- Function: __check_empty_dir
+__check_empty_dir ()  {
+  if [[ -d "$LOCAL_DIR" && $(find "${LOCAL_DIR}" | wc -l) -ne 1 ]]
+  then
+    echoerror "Direcotry ${LOCAL_DIR} doesn't seams to be empty!"
+  fi
+}
+
+# --- Function: __get_mysql_perms
+__get_mysql_perms ()  {
+  test -d "$LOCAL_DIR" || echoerror "Error while getting user and group ownership of $LOCAL_DIR"
+  __USER_MYSQL=$(stat -c '%U' $LOCAL_DIR )
+  __GROUP_MYSQL=$(stat -c '%G' $LOCAL_DIR )
+  if [[ -z "$__USER_MYSQL" || -z "$__GROUP_MYSQL" ]]
+  then
+    echoerror "Fail to get MySQL datadir ownership!"
+  fi
+}
+
+# Create s3backup directory
+if [ ! -d "S3BACKUP_DIR" ]
+then
+  mkdir -vp "${S3BACKUP_DIR}" &> /dev/null
+fi
+
+# Check Bucket Name is defined
+if [ -z "$S3_BUCKET_NAME" ]
+then
+  echoerror "Please specify a S3 Bucket name."
+fi
+
+# Check if lock exists
+if [ -f "${LOCKFILE}" ]
+then
+  echoerror "Lock file ${LOCKFILE} exsit. Do you have another process running?."
+fi
+
+case $CMD in
+	genkey)
+    if [ -f "$KEYFILE" ]
+    then
+      echowarn "There is a key in $KEYFILE overwriting this file whill break the restore process."
+      read -r -p "Are you sure? [y/N] " response
+      case $response in
+        [yY][eE][sS]|[yY])
+          echoinfo -n "Please save this key just inc ase you need it in the future: "
+          cat "$KEYFILE"
+          echo ""
+          echoinfo "Generating new KEY."
+          __generate_key
+          ;;
+        *)
+          echoinfo "KEY is already present. Nothing to do."
+          exit 0
+          ;;
+      esac
+    else
+      __generate_key
+    fi
+    ;;
+  backup)
+    if [ ! -e "${KEYFILE}" ]
+    then
+      echowarn "Encryption key does not exist. Please create one."
+      __generate_key
+    fi
+    if !  __check_mysql_running
+    then
+      echoerror "MySQL service is not running!. Please ensure mysql is running before running a backup."
+    fi
+    __check_mysql_credentials
+  	echoinfo "Backup in progress, please wait. Log written to ${LOGFILE}"
+  	touch "${LOCKFILE}" || echoerror "Fail to create lock file. Please review the configuration."
+  	${IBEX_CMD} --encrypt=AES256 --encrypt-key-file="${KEYFILE}" --stream=xbstream --compress --user=${MYSQL_USER} --password=${MYSQL_PASSWORD} . 2>>"${LOGFILE}" | $PV_CMD | ${GOF3R_CMD} put -b "${S3_BUCKET_NAME}" --endpoint="${AWS_REGION}" -k "${S3_BACKUP_PATH}"/"${CURRENT_DATE}"/"${S3_BACKUP_NAME}".xbcrypt
+  	STATUS=(${PIPESTATUS[@]})
+  	IBEX_STATUS=${STATUS[0]}
+  	S3_STATUS=${STATUS[1]}
+  	if [ "$IBEX_STATUS" -ne 0 ]
+  	then
+  		echoerror "Xtrabackup failure!. Plese check the log and try again."
+  	fi
+  	if [ "$S3_STATUS" -ne 0 ]
+  	then
+  		echoerror "S3 Bucket Transfer failed!"
+  	fi
+  	echoinfo "Upload of ${S3_BACKUP_NAME}.xbcrypt to path ${S3_BACKUP_PATH}/${CURRENT_DATE} on Bucket ${S3_BUCKET_NAME} complete"
+  	rm -f "${LOCKFILE}"
+  	exit 0
+  	;;
+  restore|full-restore)
+  	if [ -z "$2" ]
+  	then
+  		echoerror "ERROR: Please specify a backup date to retrieve, e.g. 20160927"
+  	fi
+    RESTORE_DATE="$2"
+  	if [ ! -d $LOCAL_DIR ] && [ "$CMD" == "restore" ]
+    then
+      mkdir -vp $LOCAL_DIR  &> /dev/null
+      echoinfo "Created local dir to download backup files from S3 Bucket."
+    elif [ ! -d $LOCAL_DIR ] && [ "$CMD" == "full-restore" ]
+    then
+      echoerror "Configured restore directory ${LOCAL_DIR} doesn't exsits!."
+    fi
+    __check_empty_dir
+    if [ "$CMD" == "full-restore" ]
+    then
+      if  __check_mysql_running
+      then
+        echoerror "MySQL service is running!. Please stop service before running a full-restore."
+      fi
+    fi
+  	echoinfo "Downloading backup to ${LOCAL_DIR}. Please wait."
+  	${GOF3R_CMD} get -b ${S3_BUCKET_NAME} --endpoint=${AWS_REGION} -k "${S3_BACKUP_PATH}"/"${RESTORE_DATE}"/"${S3_BACKUP_NAME}".xbcrypt 2>>"${LOGFILE}" | ${PV_CMD} | xbstream -x -C ${LOCAL_DIR}
+  	STATUS=(${PIPESTATUS[@]})
+  	S3_STATUS=${STATUS[0]}
+  	XB_STATUS=${STATUS[1]}
+  	if [ "${S3_STATUS}" -ne 0 ]
+  	then
+  		echoerror "Backup not found or could not initiate transfer."
+  	fi
+  	if [ "${XB_STATUS}" -ne 0 ]
+  	then
+  		echoinfo "Deserializing files failed."
+  		exit 1
+  	fi
+  	echoinfo "Decrypting backup files and removing *..xbcrypt."
+    cd "${LOCAL_DIR}" || echoerror "Faled to change directory to ${LOCAL_DIR}"
+    # shellcheck disable=SC2044
+    for i in $(find . -iname "*\.xbcrypt"); do
+      # shellcheck disable=SC2086
+      xbcrypt -d --encrypt-key-file="${KEYFILE}" --encrypt-algo=AES256 < "$i" > "$(dirname $i)"/"$(basename $i .xbcrypt)" && rm -f "$i";
+    done
+    if [ $? -ne 0 ]
+    then
+      echoerror "Error decrypting files. Please check ${LOCAL_DIR}"
+    fi
+    echoinfo "Decompressing backup files..."
+    cd "${LOCAL_DIR}" || echoerror "Faled to change directory to ${LOCAL_DIR}"
+    # shellcheck disable=SC2044
+    for bf in $(find . -iname "*\.qp"); do
+      # shellcheck disable=SC2086
+      ${QPRESS_CMD} -d "${bf}" "$(dirname ${bf})" && rm -f "${bf}";
+    done
+    if [ $? -ne 0 ]
+    then
+      echoerror "Error Uncompressing files. Please check ${LOCAL_DIR}"
+    fi
+  	${IBEX_CMD} --apply-log "${LOCAL_DIR}" 2>> ${LOGFILE}
+  	if [ $? -ne 0 ]
+  	then
+  		echoerror "Applying logs failed. Check ${LOGFILE} file for more information."
+  	fi
+    if [ "$CMD" == "restore" ]
+    then
+      echoinfo "Backup is ready to be restored."
+      echoinfo "Make sure mysql service is stopped and run innobackupex --move-back ${LOCAL_DIR}"
+      echoinfo "Before starting mysql check datadir permissions."
+    else
+      __get_mysql_perms
+      echoinfo "Changing ${LOCAL_DIR} ownership to ${__USER_MYSQL}:${__GROUP_MYSQL}"
+      chown -R "${__USER_MYSQL}":"${__GROUP_MYSQL}" "${LOCAL_DIR}"
+      ${MYSQL_SERVICE_CMD}
+      echoinfo "Backup restore complete!."
+    fi
+    exit 0
+  	;;
+  help)
+    usage
+    exit 0
+    ;;
+  *)
+    usage
+  	echoerror "Wrong and/or missing arguments"
+  	;;
 esac
