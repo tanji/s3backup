@@ -13,13 +13,15 @@ Stream MySQL Backups to AWS S3.
 
 ## Configuration
 
+Copy *s3backup.cnf.example* to */etc/s3backup.cnf* or *~/.s3backup.cnf* and edit it accordingly
+
 Set AWS S3 Bucket Name to store backups
 
 ```
 S3_BUCKET_NAME='my_bucket'
 ```
 
-Set AWS S3 Bucket path to store backups. This is usefull if you want to store all this backups in a dedicated directory
+Set AWS S3 Bucket path to store backups. This is useful if you want to store all this backups in a dedicated directory
 
 ```
 S3_BACKUP_PATH='databases'
