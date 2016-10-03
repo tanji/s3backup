@@ -12,15 +12,19 @@
 #
 
 # ----- START CONFIGURATION ---------------------
-
-S3_BUCKET_NAME='my_bucket'
-S3_BACKUP_PATH='databases'
-S3_BACKUP_NAME='cluster_name'
-MYSQL_USER='root'
-MYSQL_PASSWORD='root'
-MYSQL_SERVICE_CMD="service mysql start"
-LOCAL_DIR='/tmp/restore_db'
-AWS_REGION='s3-us-west-2.amazonaws.com'
+if [ -f s3backup.cnf ]
+then
+  . s3backup.cnf
+elif [ -f ~/.s3backup.cnf ]
+then
+  . ~/.s3backup.cnf
+elif [ -f /etc/s3backup.cnf ]
+then
+  . /etc/s3backup.cnf
+else
+  echo "Configuration file (s3backup.cnf) not found."
+  exit 1
+fi
 export AWS_ACCESS_KEY_ID='YOUR_AWS_ACCESS_KEY_ID'
 export AWS_SECRET_ACCESS_KEY='YOUR_AWS_SECRET_ACCESS_KEY'
 

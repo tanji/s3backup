@@ -1,0 +1,15 @@
+# s3backup.cnf
+# S3Backup configuration file
+# Please copy this file to the following locations:
+# $PWD/s3backup.cnf, $HOME/.s3backup.cnf or /etc/s3backup.cnf
+
+S3_BUCKET_NAME='my_bucket'
+S3_BACKUP_PATH='databases'
+S3_BACKUP_NAME='cluster_name'
+MYSQL_USER='root'
+MYSQL_PASSWORD='root'
+MYSQL_SERVICE_CMD="service mysql start"
+LOCAL_DIR='/tmp/restore_db'
+AWS_REGION='s3-us-west-2.amazonaws.com'
+export AWS_ACCESS_KEY_ID='YOUR_AWS_ACCESS_KEY_ID'
+export AWS_SECRET_ACCESS_KEY='YOUR_AWS_SECRET_ACCESS_KEY'
