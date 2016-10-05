@@ -233,24 +233,24 @@ case $CMD in
       echoerror "MySQL service is not running!. Please ensure mysql is running before running a backup."
     fi
     __check_mysql_credentials
-  	echoinfo "Backup in progress, please wait. Log written to ${LOGFILE}"
-  	touch "${LOCKFILE}" || echoerror "Failed to create lock file. Please review the configuration."
-  	${IBEX_CMD} --encrypt=AES256 --encrypt-key-file="${KEYFILE}" --stream=xbstream --compress --user=${MYSQL_USER} --password=${MYSQL_PASSWORD} . 2>>"${LOGFILE}" | $PV_CMD | ${GOF3R_CMD} put -b "${S3_BUCKET_NAME}" --endpoint="${AWS_REGION}" -k "${S3_BACKUP_PATH}"/"${CURRENT_DATE}"/"${S3_BACKUP_NAME}".xbcrypt
-  	STATUS=(${PIPESTATUS[@]})
-  	IBEX_STATUS=${STATUS[0]}
-  	S3_STATUS=${STATUS[1]}
-  	if [ "$IBEX_STATUS" -ne 0 ]
-  	then
-  		echoerror "Xtrabackup failure!. Plese check the log and try again."
-  	fi
-  	if [ "$S3_STATUS" -ne 0 ]
-  	then
-  		echoerror "S3 Bucket Transfer failed!"
-  	fi
-  	echoinfo "Upload of ${S3_BACKUP_NAME}.xbcrypt to path ${S3_BACKUP_PATH}/${CURRENT_DATE} on Bucket ${S3_BUCKET_NAME} complete"
-  	rm -f "${LOCKFILE}"
-  	exit 0
-  	;;
+    echoinfo "Backup in progress, please wait. Log written to ${LOGFILE}"
+    touch "${LOCKFILE}" || echoerror "Failed to create lock file. Please review the configuration."
+    ${IBEX_CMD} --encrypt=AES256 --encrypt-key-file="${KEYFILE}" --no-lock --slave-info --safe-slave-backup --stream=xbstream --compress --user=${MYSQL_USER} --password=${MYSQL_PASSWORD} . 2>>"${LOGFILE}" | $PV_CMD | ${GOF3R_CMD} put -b "${S3_BUCKET_NAME}" --endpoint="${AWS_REGION}" -k "${S3_BACKUP_PATH}"/"${CURRENT_DATE}"/"${S3_BACKUP_NAME}".xbcrypt
+    STATUS=(${PIPESTATUS[@]})
+    IBEX_STATUS=${STATUS[0]}
+	S3_STATUS=${STATUS[1]}
+	if [ "$IBEX_STATUS" -ne 0 ]
+	then
+		echoerror "Xtrabackup failure!. Plese check the log and try again."
+	fi
+	if [ "$S3_STATUS" -ne 0 ]
+	then
+		echoerror "S3 Bucket Transfer failed!"
+	fi
+	echoinfo "Upload of ${S3_BACKUP_NAME}.xbcrypt to path ${S3_BACKUP_PATH}/${CURRENT_DATE} on Bucket ${S3_BUCKET_NAME} complete"
+	rm -f "${LOCKFILE}"
+	exit 0
+	;;
   restore|full-restore)
   	if [ -z "$2" ]
   	then
